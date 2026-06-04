@@ -125,7 +125,6 @@ tabs = st.tabs([
     "🤖 Tutor AI",
     "📈 Progresul meu",
     "📊 Evaluare & EDA",
-    "🤝 Echipă & Etică",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -430,132 +429,131 @@ with tabs[2]:
 
     if "selected_exercise_idx" not in st.session_state:
         st.info("Apasă butonul de mai sus pentru a începe un exercițiu.")
-        st.stop()
+    else:
+        exercise_idx = st.session_state.selected_exercise_idx
+        current_row = data.loc[exercise_idx]
+        elapsed = int(time.time() - st.session_state.current_exercise_start_time) if st.session_state.current_exercise_start_time else 0
 
-    exercise_idx = st.session_state.selected_exercise_idx
-    current_row = data.loc[exercise_idx]
-    elapsed = int(time.time() - st.session_state.current_exercise_start_time) if st.session_state.current_exercise_start_time else 0
+        st.divider()
+        st.markdown("### 📝 Problemă")
+        st.markdown(f"<div class='main-card'>{current_row['Problema']}</div>", unsafe_allow_html=True)
+        st.caption(f"Domeniu: **{current_row.get('Domeniu','—')}** · Temă: **{current_row.get('Tema_norm','—')}** · Nivel: **{current_row.get('Dificultate_group','—')}**")
 
-    st.divider()
-    st.markdown("### 📝 Problemă")
-    st.markdown(f"<div class='main-card'>{current_row['Problema']}</div>", unsafe_allow_html=True)
-    st.caption(f"Domeniu: **{current_row.get('Domeniu','—')}** · Temă: **{current_row.get('Tema_norm','—')}** · Nivel: **{current_row.get('Dificultate_group','—')}**")
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.metric("Încercări", st.session_state.current_exercise_attempt_count or 0)
+        sc2.metric("Indicii", st.session_state.current_exercise_hint_count)
+        sc3.metric("Timp", f"{elapsed}s")
 
-    sc1, sc2, sc3 = st.columns(3)
-    sc1.metric("Încercări", st.session_state.current_exercise_attempt_count or 0)
-    sc2.metric("Indicii", st.session_state.current_exercise_hint_count)
-    sc3.metric("Timp", f"{elapsed}s")
+        student_answer = st.text_area("Scrie răspunsul tău", placeholder="Introdu răspunsul...", key=f"tutor_answer_{exercise_idx}")
 
-    student_answer = st.text_area("Scrie răspunsul tău", placeholder="Introdu răspunsul...", key=f"tutor_answer_{exercise_idx}")
+        st.markdown("#### Întrebare de conștientizare")
+        q_idx = (int(exercise_idx) + st.session_state.current_exercise_hint_count) % len(METACOGNITIVE_QUESTIONS)
+        st.info(METACOGNITIVE_QUESTIONS[q_idx])
 
-    st.markdown("#### Întrebare de conștientizare")
-    q_idx = (int(exercise_idx) + st.session_state.current_exercise_hint_count) % len(METACOGNITIVE_QUESTIONS)
-    st.info(METACOGNITIVE_QUESTIONS[q_idx])
+        col_hints, col_submit = st.columns([1, 1])
+        with col_hints:
+            if st.button("💡 Cere indiciu", key="hint_btn"):
+                st.session_state.current_exercise_hint_count += 1
+                hint = choose_hint(
+                    current_row["Problema"],
+                    current_row.get("Pasii de rezolvare", ""),
+                    st.session_state.mastery,
+                    st.session_state.current_exercise_hint_count,
+                )
+                st.markdown(f"**Tip: {hint['hint_type']}**")
+                st.info(hint["hint"])
 
-    col_hints, col_submit = st.columns([1, 1])
-    with col_hints:
-        if st.button("💡 Cere indiciu", key="hint_btn"):
-            st.session_state.current_exercise_hint_count += 1
-            hint = choose_hint(
-                current_row["Problema"],
-                current_row.get("Pasii de rezolvare", ""),
-                st.session_state.mastery,
-                st.session_state.current_exercise_hint_count,
-            )
-            st.markdown(f"**Tip: {hint['hint_type']}**")
-            st.info(hint["hint"])
+        with col_submit:
+            if st.button("✓ Verifică răspunsul", type="primary", key="check_btn"):
+                st.session_state.current_exercise_attempt_count += 1
+                result = evaluate_answer(student_answer, current_row.get("Raspunsul", ""))
+                is_correct = result["correct"]
+                time_spent = time.time() - st.session_state.current_exercise_start_time
 
-    with col_submit:
-        if st.button("✓ Verifică răspunsul", type="primary", key="check_btn"):
-            st.session_state.current_exercise_attempt_count += 1
-            result = evaluate_answer(student_answer, current_row.get("Raspunsul", ""))
-            is_correct = result["correct"]
-            time_spent = time.time() - st.session_state.current_exercise_start_time
+                if not is_correct:
+                    st.session_state.current_exercise_mistake_count += 1
 
-            if not is_correct:
-                st.session_state.current_exercise_mistake_count += 1
+                domain_pred = predict_domain_from_text(unstructured_model, str(current_row["Problema"]))
+                feat = data.loc[[exercise_idx]][[
+                    "Itemul", "Sursa_year", "problem_chars", "problem_words", "steps_chars", "answer_chars",
+                    "n_digits", "n_math_symbols", "has_percent", "has_geometry_word", "has_equation_word",
+                    "has_radical", "has_function_word", "has_real_life_context", "Tema_norm", "Domeniu", "Sursa_type"
+                ]]
+                diff_pred = predict_structured_difficulty(structured_model, feat)
 
-            domain_pred = predict_domain_from_text(unstructured_model, str(current_row["Problema"]))
-            feat = data.loc[[exercise_idx]][[
-                "Itemul", "Sursa_year", "problem_chars", "problem_words", "steps_chars", "answer_chars",
-                "n_digits", "n_math_symbols", "has_percent", "has_geometry_word", "has_equation_word",
-                "has_radical", "has_function_word", "has_real_life_context", "Tema_norm", "Domeniu", "Sursa_type"
-            ]]
-            diff_pred = predict_structured_difficulty(structured_model, feat)
+                neural_pred = None
+                if st.session_state.neural_available and predict_neural_student_state is not None:
+                    try:
+                        neural_features = {
+                            "time_spent_seconds": float(time_spent),
+                            "hint_count": float(st.session_state.current_exercise_hint_count),
+                            "attempt_count": float(st.session_state.current_exercise_attempt_count),
+                            "is_correct": float(1.0 if is_correct else 0.0),
+                            "mistake_count": float(st.session_state.current_exercise_mistake_count),
+                            "exercise_difficulty_encoded": 2.0,
+                            "previous_mastery": float(st.session_state.mastery),
+                            "consecutive_errors": float(st.session_state.current_exercise_consecutive_errors),
+                            "help_level_requested": float(min(st.session_state.current_exercise_hint_count, 3)),
+                        }
+                        neural_pred = predict_neural_student_state(neural_features)
+                    except Exception:
+                        neural_pred = None
 
-            neural_pred = None
-            if st.session_state.neural_available and predict_neural_student_state is not None:
-                try:
-                    neural_features = {
-                        "time_spent_seconds": float(time_spent),
-                        "hint_count": float(st.session_state.current_exercise_hint_count),
-                        "attempt_count": float(st.session_state.current_exercise_attempt_count),
-                        "is_correct": float(1.0 if is_correct else 0.0),
-                        "mistake_count": float(st.session_state.current_exercise_mistake_count),
-                        "exercise_difficulty_encoded": 2.0,
-                        "previous_mastery": float(st.session_state.mastery),
-                        "consecutive_errors": float(st.session_state.current_exercise_consecutive_errors),
-                        "help_level_requested": float(min(st.session_state.current_exercise_hint_count, 3)),
-                    }
-                    neural_pred = predict_neural_student_state(neural_features)
-                except Exception:
-                    neural_pred = None
+                learning_state = diagnose_learning_state(is_correct, st.session_state.current_exercise_hint_count, st.session_state.current_exercise_attempt_count, int(time_spent))
+                new_mastery = update_mastery(st.session_state.mastery, is_correct, st.session_state.current_exercise_hint_count, st.session_state.current_exercise_attempt_count)
+                st.session_state.mastery = new_mastery
 
-            learning_state = diagnose_learning_state(is_correct, st.session_state.current_exercise_hint_count, st.session_state.current_exercise_attempt_count, int(time_spent))
-            new_mastery = update_mastery(st.session_state.mastery, is_correct, st.session_state.current_exercise_hint_count, st.session_state.current_exercise_attempt_count)
-            st.session_state.mastery = new_mastery
+                entry = {
+                    "exercise_id": int(current_row.get("Itemul", 0)) if pd.notna(current_row.get("Itemul")) else 0,
+                    "problem_text": str(current_row.get("Problema", ""))[:200],
+                    "predicted_domain": domain_pred["prediction"],
+                    "predicted_difficulty": diff_pred["prediction"],
+                    "time_spent_seconds": float(time_spent),
+                    "hint_count": int(st.session_state.current_exercise_hint_count),
+                    "attempt_count": int(st.session_state.current_exercise_attempt_count),
+                    "mistake_count": int(st.session_state.current_exercise_mistake_count),
+                    "is_correct": bool(is_correct),
+                    "predicted_learning_state": neural_pred["predicted_state"] if neural_pred else "reguli",
+                    "timestamp": time.time(),
+                }
+                st.session_state.interaction_log.append(entry)
 
-            entry = {
-                "exercise_id": int(current_row.get("Itemul", 0)) if pd.notna(current_row.get("Itemul")) else 0,
-                "problem_text": str(current_row.get("Problema", ""))[:200],
-                "predicted_domain": domain_pred["prediction"],
-                "predicted_difficulty": diff_pred["prediction"],
-                "time_spent_seconds": float(time_spent),
-                "hint_count": int(st.session_state.current_exercise_hint_count),
-                "attempt_count": int(st.session_state.current_exercise_attempt_count),
-                "mistake_count": int(st.session_state.current_exercise_mistake_count),
-                "is_correct": bool(is_correct),
-                "predicted_learning_state": neural_pred["predicted_state"] if neural_pred else "reguli",
-                "timestamp": time.time(),
-            }
-            st.session_state.interaction_log.append(entry)
+                st.divider()
+                if is_correct:
+                    st.success("✓ Răspunsul este corect!")
+                else:
+                    st.error("✗ Răspunsul nu este corect. Încearcă din nou sau cere un indiciu.")
+                st.write(result["feedback"])
 
-            st.divider()
-            if is_correct:
-                st.success("✓ Răspunsul este corect!")
-            else:
-                st.error("✗ Răspunsul nu este corect. Încearcă din nou sau cere un indiciu.")
-            st.write(result["feedback"])
+                with st.expander("📊 Analiza sistemului"):
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Timp", f"{int(time_spent)}s")
+                    c2.metric("Indicii", st.session_state.current_exercise_hint_count)
+                    c3.metric("Mastery nou", f"{new_mastery:.2f}")
+                    st.write(f"- Domeniu estimat (S1 text): **{domain_pred['prediction']}**")
+                    st.write(f"- Dificultate estimată (S2 structurat): **{diff_pred['prediction']}**")
+                    if neural_pred:
+                        st.write(f"- Stare elev (S3 neural): **{neural_pred['predicted_state']}** — {neural_pred['recommended_action']}")
 
-            with st.expander("📊 Analiza sistemului"):
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Timp", f"{int(time_spent)}s")
-                c2.metric("Indicii", st.session_state.current_exercise_hint_count)
-                c3.metric("Mastery nou", f"{new_mastery:.2f}")
-                st.write(f"- Domeniu estimat (S1 text): **{domain_pred['prediction']}**")
-                st.write(f"- Dificultate estimată (S2 structurat): **{diff_pred['prediction']}**")
-                if neural_pred:
-                    st.write(f"- Stare elev (S3 neural): **{neural_pred['predicted_state']}** — {neural_pred['recommended_action']}")
+                st.markdown(f"**Stare pedagogică:** {learning_state['state']} → {learning_state['intervention']}")
+                st.markdown(f"**Reactivare spaced repetition:** {next_review_date(new_mastery, is_correct)}")
 
-            st.markdown(f"**Stare pedagogică:** {learning_state['state']} → {learning_state['intervention']}")
-            st.markdown(f"**Reactivare spaced repetition:** {next_review_date(new_mastery, is_correct)}")
-
-            if is_correct or st.session_state.current_exercise_attempt_count >= 3:
-                target = target_difficulty_from_mastery(new_mastery, is_correct)
-                next_ex = recommend_next_exercise(data, current_row["Domeniu"], target, exclude_problem=current_row["Problema"], random_state=42)
-                if next_ex is not None and not next_ex.empty:
-                    st.markdown("---")
-                    st.markdown("### 🎯 Exercițiul următor recomandat")
-                    st.write(f"Țintă: **{target}** · Domeniu: **{current_row['Domeniu']}**")
-                    st.markdown(f"<div class='main-card'>{next_ex.iloc[0]['Problema']}</div>", unsafe_allow_html=True)
-                    if st.button("Continuă cu exercițiul următor ➜", type="primary", key="next_ex_btn"):
-                        next_idx = next_ex.index[0]
-                        st.session_state.selected_exercise_idx = next_idx
-                        st.session_state.current_exercise_start_time = time.time()
-                        st.session_state.current_exercise_attempt_count = 0
-                        st.session_state.current_exercise_hint_count = 0
-                        st.session_state.current_exercise_mistake_count = 0
-                        st.rerun()
+                if is_correct or st.session_state.current_exercise_attempt_count >= 3:
+                    target = target_difficulty_from_mastery(new_mastery, is_correct)
+                    next_ex = recommend_next_exercise(data, current_row["Domeniu"], target, exclude_problem=current_row["Problema"], random_state=42)
+                    if next_ex is not None and not next_ex.empty:
+                        st.markdown("---")
+                        st.markdown("### 🎯 Exercițiul următor recomandat")
+                        st.write(f"Țintă: **{target}** · Domeniu: **{current_row['Domeniu']}**")
+                        st.markdown(f"<div class='main-card'>{next_ex.iloc[0]['Problema']}</div>", unsafe_allow_html=True)
+                        if st.button("Continuă cu exercițiul următor ➜", type="primary", key="next_ex_btn"):
+                            next_idx = next_ex.index[0]
+                            st.session_state.selected_exercise_idx = next_idx
+                            st.session_state.current_exercise_start_time = time.time()
+                            st.session_state.current_exercise_attempt_count = 0
+                            st.session_state.current_exercise_hint_count = 0
+                            st.session_state.current_exercise_mistake_count = 0
+                            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -566,38 +564,37 @@ with tabs[3]:
 
     if not st.session_state.interaction_log:
         st.info("Încă nu ai rezolvat exerciții. Mergi la **Tutor AI** și începe!")
-        st.stop()
+    else:
+        log_df = pd.DataFrame(st.session_state.interaction_log)
 
-    log_df = pd.DataFrame(st.session_state.interaction_log)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Exerciții rezolvate", len(log_df))
+        accuracy = (log_df["is_correct"].sum() / len(log_df) * 100) if len(log_df) > 0 else 0
+        c2.metric("Acuratețe", f"{accuracy:.1f}%")
+        c3.metric("Indicii medie", f"{log_df['hint_count'].mean():.1f}")
+        c4.metric("Timp mediu", f"{int(log_df['time_spent_seconds'].mean())}s")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Exerciții rezolvate", len(log_df))
-    accuracy = (log_df["is_correct"].sum() / len(log_df) * 100) if len(log_df) > 0 else 0
-    c2.metric("Acuratețe", f"{accuracy:.1f}%")
-    c3.metric("Indicii medie", f"{log_df['hint_count'].mean():.1f}")
-    c4.metric("Timp mediu", f"{int(log_df['time_spent_seconds'].mean())}s")
+        st.divider()
+        st.markdown("### Progres pe domenii")
+        domain_stats = log_df.groupby("predicted_domain").agg({"is_correct": ["sum", "count"], "time_spent_seconds": "mean"}).round(2)
+        domain_stats.columns = ["Corecte", "Total", "Timp mediu (s)"]
+        st.dataframe(domain_stats, use_container_width=True)
 
-    st.divider()
-    st.markdown("### Progres pe domenii")
-    domain_stats = log_df.groupby("predicted_domain").agg({"is_correct": ["sum", "count"], "time_spent_seconds": "mean"}).round(2)
-    domain_stats.columns = ["Corecte", "Total", "Timp mediu (s)"]
-    st.dataframe(domain_stats, use_container_width=True)
+        if "predicted_learning_state" in log_df.columns and log_df["predicted_learning_state"].notna().any():
+            st.markdown("### Stări de învățare detectate")
+            st.bar_chart(log_df["predicted_learning_state"].value_counts())
 
-    if "predicted_learning_state" in log_df.columns and log_df["predicted_learning_state"].notna().any():
-        st.markdown("### Stări de învățare detectate")
-        st.bar_chart(log_df["predicted_learning_state"].value_counts())
+        st.markdown("### Istoric recent")
+        recent = log_df.tail(10)[["problem_text", "predicted_difficulty", "hint_count", "attempt_count", "is_correct", "time_spent_seconds"]].copy()
+        recent["Rezultat"] = recent["is_correct"].map({True: "✓ Corect", False: "✗ Incorect"})
+        recent = recent.drop("is_correct", axis=1)
+        st.dataframe(recent, use_container_width=True)
 
-    st.markdown("### Istoric recent")
-    recent = log_df.tail(10)[["problem_text", "predicted_difficulty", "hint_count", "attempt_count", "is_correct", "time_spent_seconds"]].copy()
-    recent["Rezultat"] = recent["is_correct"].map({True: "✓ Corect", False: "✗ Incorect"})
-    recent = recent.drop("is_correct", axis=1)
-    st.dataframe(recent, use_container_width=True)
-
-    if st.button("🔄 Resetează progresul"):
-        st.session_state.interaction_log = []
-        st.session_state.mastery = 0.55
-        st.success("Progres resetat!")
-        st.rerun()
+        if st.button("🔄 Resetează progresul"):
+            st.session_state.interaction_log = []
+            st.session_state.mastery = 0.55
+            st.success("Progres resetat!")
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -717,113 +714,3 @@ with tabs[4]:
         st.bar_chart(fi_df.set_index("feature"))
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — ECHIPĂ & ETICĂ
-# ══════════════════════════════════════════════════════════════════════════════
-with tabs[5]:
-    st.header("🤝 Echipă și etică AI")
-
-    st.subheader("Structura echipei și responsabilități")
-    st.caption("Fiecare membru al echipei poate răspunde la întrebările legate de partea sa.")
-
-    ec1, ec2 = st.columns(2)
-    with ec1:
-        st.markdown(
-            "<div class='team-card'>"
-            "<strong>Membru 1</strong><br>"
-            "<ul style='margin:0.5rem 0 0; padding-left:1.2rem;'>"
-            "<li>Serviciul ML pe date structurate (RandomForestClassifier)</li>"
-            "<li>Pipeline de preprocesare și feature engineering</li>"
-            "<li>GridSearchCV, evaluare, matrici de confuzie</li>"
-            "<li>Analiza exploratorie a datelor structurate (EDA)</li>"
-            "<li>Implementarea motorului pedagogic</li>"
-            "</ul></div>",
-            unsafe_allow_html=True,
-        )
-    with ec2:
-        st.markdown(
-            "<div class='team-card'>"
-            "<strong>Membru 2</strong><br>"
-            "<ul style='margin:0.5rem 0 0; padding-left:1.2rem;'>"
-            "<li>Serviciul ML pe date nestructurate (TF-IDF + ComplementNB)</li>"
-            "<li>Preprocesare text, TF-IDF tuning, audit de leakage GroupKFold</li>"
-            "<li>Rețeaua neurală TensorFlow (serviciu bonus)</li>"
-            "<li>Aplicația Streamlit și interfața grafică</li>"
-            "<li>README, documentație, API FastAPI</li>"
-            "</ul></div>",
-            unsafe_allow_html=True,
-        )
-
-    st.divider()
-    st.subheader("Analiză etică și impact")
-
-    st.markdown(
-        "<div class='ethics-card'>"
-        "<strong>1. Bias în date și model</strong><br>"
-        "Exercițiile provin dintr-o singură bancă de examene românești/moldovenești — notația și stilul reflectă acea tradiție curriculară, "
-        "nu varietatea internațională. Clasa <em>4 - avansat</em> are doar 15 exemple; predicțiile pe această clasă sunt mai puțin sigure. "
-        "Mitigare: <code>class_weight='balanced'</code>, macro-F1, balanced accuracy."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div class='ethics-card'>"
-        "<strong>2. Confidențialitate</strong><br>"
-        "Datasetul conține exclusiv exerciții matematice, fără date personale. "
-        "MVP-ul nu persistă date despre elevi între sesiuni. "
-        "Într-o versiune de producție, profilul elevului ar fi stocat anonimizat, cu consimțământ explicit."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div class='ethics-card'>"
-        "<strong>3. Riscuri de utilizare incorectă</strong><br>"
-        "Elevul ar putea cere indicii în cascadă pentru a obține soluția fără gândire proprie. "
-        "Mitigare: indicii graduale (abstract → ghidat → concret), soluția completă nu apare niciodată automat, "
-        "întrebări metacognitive înaintea fiecărui indiciu."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div class='ethics-card'>"
-        "<strong>4. Transparență și utilizare responsabilă</strong><br>"
-        "Sistemul comunică explicit că predicțiile sunt <em>estimări de suport educațional</em>, nu verdicte. "
-        "Metricile sunt calculate reproductibil, nu fabricate. "
-        "Componenta neurală este marcată clar ca experimentală (date sintetice). "
-        "Limitările sunt afișate în tabul Evaluare & EDA."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div class='ethics-card'>"
-        "<strong>5. Impact educațional potențial și limite</strong><br>"
-        "Beneficii: tutoring accesibil, feedback imediat fără soluție completă, traseu adaptat nivelului elevului. "
-        "Limite: datasetul mic (1344 exerciții), lipsa istoricului real de interacțiuni, "
-        "evaluatorul de răspunsuri este un checker simplu (nu simbolic). "
-        "Sistemul nu înlocuiește profesorul — este un instrument de practică suplimentară."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.divider()
-    st.subheader("Ce NU face sistemul")
-    cols = st.columns(2)
-    with cols[0]:
-        st.markdown("- ❌ Nu oferă soluția completă automat")
-        st.markdown("- ❌ Nu rezolvă în locul elevului")
-        st.markdown("- ❌ Nu tratează toți elevii la fel")
-    with cols[1]:
-        st.markdown("- ❌ Nu optimizează doar pentru scor")
-        st.markdown("- ❌ Nu persistă date personale")
-        st.markdown("- ❌ Nu pretinde că înlocuiește profesorul")
-
-    st.divider()
-    st.subheader("Reproducibilitate")
-    st.code(
-        "# Instalare\npip install -r requirements.txt\n\n"
-        "# Rulare aplicație\nstreamlit run app.py\n\n"
-        "# Reantrenare modele (opțional — modelele sunt pre-salvate)\npython -m src.train_models\n\n"
-        "# Regenerare EDA\npython -m src.eda\n\n"
-        "# API REST (testare programatică a celor 2 servicii)\npip install -r requirements-api.txt\nuvicorn api:app --port 8000\n# Swagger UI: http://localhost:8000/docs",
-        language="bash",
-    )
