@@ -10,3 +10,6 @@ scikit-learn>=1.3.2
 joblib>=1.3.2
 
 # For TensorFlow, install requirements-full.txt instead.
+# For lightweight local dev with TensorFlow CPU support, you can also install
+# the CPU-only TensorFlow build here.
+tensorflow-cpu>=2.16.1

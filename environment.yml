@@ -1,0 +1,11 @@
+name: didact
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - -r requirements-full.txt
+
+# To create this environment: `conda env create -f environment.yml`
+# Activate with: `conda activate didact`
