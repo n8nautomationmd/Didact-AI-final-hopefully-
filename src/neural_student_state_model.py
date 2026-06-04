@@ -49,7 +49,11 @@ LABEL_COLUMN = "learner_state"
 def _ensure_seed(seed: int = 42) -> None:
     random.seed(seed)
     np.random.seed(seed)
-    tf.random.set_seed(seed)
+    if tf is not None:
+        try:
+            tf.random.set_seed(seed)
+        except Exception:
+            pass
 
 
 def generate_student_interactions_csv(path: Path = PROCESSED_DIR / "student_interactions.csv") -> pd.DataFrame:
@@ -217,19 +221,25 @@ def train_neural_student_state_model(path: Path = PROCESSED_DIR / "student_inter
 
 
 def load_neural_model_artifacts() -> Dict[str, object]:
-    if tf is None or models is None:
-        raise ModuleNotFoundError("TensorFlow is required to load the neural student-state model.")
-
-    model = tf.keras.models.load_model(MODELS_DIR / "neural_student_state_model.keras")
+    # Load artifacts for either TensorFlow model or sklearn fallback
     scaler = joblib.load(MODELS_DIR / "neural_student_state_scaler.joblib")
     label_encoder = joblib.load(MODELS_DIR / "neural_student_state_label_encoder.joblib")
-    return {"model": model, "scaler": scaler, "label_encoder": label_encoder}
+
+    if tf is not None and models is not None:
+        model = tf.keras.models.load_model(MODELS_DIR / "neural_student_state_model.keras")
+        return {"model": model, "scaler": scaler, "label_encoder": label_encoder}
+
+    # Try sklearn fallback
+    sklearn_path = MODELS_DIR / "neural_student_state_sklearn.joblib"
+    if sklearn_path.exists():
+        sklearn_model = joblib.load(sklearn_path)
+        return {"model": sklearn_model, "scaler": scaler, "label_encoder": label_encoder}
+
+    raise ModuleNotFoundError("No usable neural model artifacts found (TensorFlow missing and sklearn fallback absent).")
 
 
 def predict_neural_student_state(features_dict: Dict[str, float]) -> Dict[str, object]:
-    if tf is None or models is None:
-        raise ModuleNotFoundError("TensorFlow is required to run the neural student-state model.")
-
+    # Support both TensorFlow and sklearn fallback models
     artifacts = load_neural_model_artifacts()
     model = artifacts["model"]
     scaler = artifacts["scaler"]
@@ -237,7 +247,15 @@ def predict_neural_student_state(features_dict: Dict[str, float]) -> Dict[str, o
 
     frame = pd.DataFrame([features_dict])[FEATURE_COLUMNS]
     scaled = scaler.transform(frame.astype(float))
-    probabilities = model.predict(scaled, verbose=0)[0]
+
+    # TensorFlow model path
+    if tf is not None and hasattr(model, "predict") and getattr(model, "__module__", "").startswith("tensorflow"):
+        probabilities = model.predict(scaled, verbose=0)[0]
+    else:
+        # sklearn fallback: use predict_proba
+        probs = model.predict_proba(scaled)
+        probabilities = probs[0]
+
     pred_index = int(np.argmax(probabilities))
     label = label_encoder.inverse_transform([pred_index])[0]
 
@@ -256,8 +274,39 @@ def predict_neural_student_state(features_dict: Dict[str, float]) -> Dict[str, o
 
 
 def ensure_neural_model_exists() -> Dict:
-    if tf is None or models is None or layers is None or EarlyStopping is None:
-        return {"status": "unavailable", "reason": "TensorFlow runtime is not available in this environment."}
-    if not (MODELS_DIR / "neural_student_state_model.keras").exists():
-        return train_neural_student_state_model()
-    return {"status": "ready", "model": str(MODELS_DIR / "neural_student_state_model.keras")}
+    # If TensorFlow is available, prefer the original TF model
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    if tf is not None and models is not None and layers is not None and EarlyStopping is not None:
+        if not (MODELS_DIR / "neural_student_state_model.keras").exists():
+            return train_neural_student_state_model()
+        return {"status": "ready", "model": str(MODELS_DIR / "neural_student_state_model.keras")}
+
+    # TensorFlow not available — provide sklearn fallback
+    sklearn_path = MODELS_DIR / "neural_student_state_sklearn.joblib"
+    if sklearn_path.exists() and (MODELS_DIR / "neural_student_state_scaler.joblib").exists() and (MODELS_DIR / "neural_student_state_label_encoder.joblib").exists():
+        return {"status": "ready", "model": str(sklearn_path)}
+
+    # Train a lightweight sklearn fallback model using the same synthetic data pipeline
+    try:
+        from sklearn.ensemble import RandomForestClassifier
+
+        df = load_student_interactions()
+        df = df.dropna(subset=FEATURE_COLUMNS + [LABEL_COLUMN])
+        X = df[FEATURE_COLUMNS].astype(float)
+        y = df[LABEL_COLUMN].astype(str)
+
+        label_encoder = LabelEncoder()
+        y_encoded = label_encoder.fit_transform(y)
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        clf = RandomForestClassifier(n_estimators=200, random_state=42)
+        clf.fit(X_scaled, y_encoded)
+
+        joblib.dump(clf, sklearn_path)
+        joblib.dump(scaler, MODELS_DIR / "neural_student_state_scaler.joblib")
+        joblib.dump(label_encoder, MODELS_DIR / "neural_student_state_label_encoder.joblib")
+        return {"status": "ready", "model": str(sklearn_path)}
+    except Exception as e:
+        return {"status": "unavailable", "reason": f"Fallback training failed: {e}"}

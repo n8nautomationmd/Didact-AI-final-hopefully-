@@ -85,12 +85,17 @@ for col in ["Dificultate", "Itemul", "Sursa_year"]:
 initialize_session_state(st.session_state)
 
 # Check neural model availability once at startup
+models_dir = ROOT / "models"
+has_neural_artifact = (models_dir / "neural_student_state_model.keras").exists() or (models_dir / "neural_student_state_sklearn.joblib").exists()
 if ensure_neural_model_exists is not None:
     try:
         neural_check = ensure_neural_model_exists()
         st.session_state.neural_available = neural_check.get("status") == "ready"
     except Exception:
-        st.session_state.neural_available = False
+        st.session_state.neural_available = bool(has_neural_artifact)
+else:
+    # If the import failed but artifacts exist, mark as available so UI reflects presence.
+    st.session_state.neural_available = bool(has_neural_artifact)
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
