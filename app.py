@@ -124,7 +124,6 @@ tabs = st.tabs([
     "🔬 Cele 2 Servicii ML",
     "🤖 Tutor AI",
     "📈 Progresul meu",
-    "📊 Evaluare & EDA",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -597,120 +596,6 @@ with tabs[3]:
             st.rerun()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — EVALUARE & EDA
-# ══════════════════════════════════════════════════════════════════════════════
-with tabs[4]:
-    st.header("📊 Evaluare, comparație de modele și EDA")
-    st.caption("Toate cifrele sunt din models/evaluation_report.json, regenerat din date prin `python -m src.train_models`. Nimic nu este hardcodat.")
 
-    sm = report["structured_model"]
-    um = report["unstructured_model"]
-    ds = report["dataset"]
-
-    st.subheader("Metrici față de baseline")
-    mc1, mc2 = st.columns(2)
-    with mc1:
-        st.markdown("**Serviciu 1 — text: domeniu**")
-        st.write(f"Macro-F1 model: **{um['model']['macro_f1']:.3f}** (baseline {um['baseline']['macro_f1']:.3f})")
-        st.write(f"Balanced accuracy: {um['model']['balanced_accuracy']:.3f}")
-        st.write(f"CV macro-F1: {um['best_cv_macro_f1']:.3f} ± {um.get('best_cv_macro_f1_std', 0):.3f}")
-        st.write(f"Best params: `{um['best_params']}`")
-    with mc2:
-        st.markdown("**Serviciu 2 — structurat: dificultate**")
-        st.write(f"Macro-F1 model: **{sm['model']['macro_f1']:.3f}** (baseline {sm['baseline']['macro_f1']:.3f})")
-        st.write(f"Balanced accuracy: {sm['model']['balanced_accuracy']:.3f}")
-        st.write(f"CV macro-F1: {sm['best_cv_macro_f1']:.3f} ± {sm.get('best_cv_macro_f1_std', 0):.3f}")
-        st.write(f"Best params: `{sm['best_params']}`")
-
-    st.subheader("KPI educațional (impact, nu doar acuratețe)")
-    kpi_path = ROOT / "models" / "educational_kpi.json"
-    if kpi_path.exists():
-        kpi = json.loads(kpi_path.read_text(encoding="utf-8"))
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Δmastery / succes curat", f"{kpi.get('mastery_improvement_rate_clean_success', 0):+.3f}")
-        k2.metric("Indicii / răspuns corect", f"{kpi.get('hints_per_correct', 0):.2f}")
-        k3.metric("Rată succese curate", f"{kpi.get('clean_success_rate', 0):.2f}")
-        st.caption("KPI măsurat din student_interactions.csv. Un macro-F1 bun nu garantează impact pedagogic.")
-
-    st.subheader("Comparație între modele candidate")
-    st.caption("Aceeași preprocesare și aceeași validare 5-fold pentru fiecare candidat.")
-    cc1, cc2 = st.columns(2)
-    with cc1:
-        st.markdown("**Structurat**")
-        comp = sm.get("model_comparison", {})
-        if comp:
-            st.dataframe(pd.DataFrame(comp).T, use_container_width=True)
-    with cc2:
-        st.markdown("**Text**")
-        comp = um.get("model_comparison", {})
-        if comp:
-            st.dataframe(pd.DataFrame(comp).T, use_container_width=True)
-    st.caption("RandomForest ales pentru stabilitate CV. Alternativele sunt raportate transparent.")
-
-    st.subheader("Analiză exploratorie a datelor (EDA)")
-    assets = ROOT / "assets"
-
-    def _show_asset(filename: str, caption: str):
-        p = assets / filename
-        if p.exists():
-            st.image(str(p), caption=caption, use_container_width=True)
-
-    st.markdown("**Date structurate — corelații între features numerice**")
-    _show_asset("feature_correlation_heatmap.png", "Corelații (ex: problem_chars ~ problem_words 0.96 → redundanță documentată).")
-    pairs = ds.get("top_correlated_feature_pairs", [])
-    if pairs:
-        st.dataframe(pd.DataFrame(pairs), use_container_width=True)
-
-    g1, g2 = st.columns(2)
-    with g1:
-        _show_asset("difficulty_distribution.png", "Distribuția dificultății — dezechilibrată, de aceea macro-F1.")
-    with g2:
-        _show_asset("domain_distribution.png", "Distribuția domeniilor curriculare.")
-
-    st.markdown("**Date nestructurate — EDA text**")
-    _show_asset("wordclouds_by_domain.png", "Word clouds pe domeniu.")
-    _show_asset("top_tokens_by_domain.png", "Termeni cei mai frecvenți pe domeniu.")
-    _show_asset("text_length_by_domain.png", "Lungimea enunțului pe domeniu.")
-
-    st.subheader("Matrici de confuzie și erori reprezentative")
-    for title, m in [("Text (domeniu)", um), ("Structurat (dificultate)", sm)]:
-        cm = m.get("confusion_matrix", {})
-        if cm:
-            st.markdown(f"**{title}** — etichete: {', '.join(map(str, cm['labels']))}")
-            cm_df = pd.DataFrame(cm["matrix"], index=cm["labels"], columns=cm["labels"])
-            st.dataframe(cm_df, use_container_width=True)
-        errs = m.get("sample_errors", [])
-        if errs:
-            with st.expander(f"Erori reprezentative — {title}"):
-                st.dataframe(pd.DataFrame(errs), use_container_width=True)
-
-    st.subheader("Curbe de învățare (analiza limitării dataset mic)")
-    lc1, lc2 = st.columns(2)
-    with lc1:
-        _show_asset("learning_curve_structured.png", "Structurat: gap train/CV = semn de overfitting pe date puține.")
-    with lc2:
-        _show_asset("learning_curve_text.png", "Text: CV se aplatizează ~0.99 → dataset suficient.")
-
-    la = um.get("leakage_audit", {})
-    if la and "error" not in la:
-        st.subheader("Audit de leakage (model text)")
-        st.write(
-            f"- Itemi de test cu near-duplicate în train: "
-            f"**{la.get('test_items_with_near_duplicate_in_train')}/{la.get('naive_test_items')}** "
-            f"({la.get('share_leaky', 0)*100:.0f}%)."
-        )
-        st.write(
-            f"- Re-evaluare group-aware ({la.get('n_near_duplicate_groups')} grupuri): "
-            f"macro-F1 holdout **{la.get('group_aware_holdout_macro_f1')}**, "
-            f"CV **{la.get('group_aware_cv_macro_f1_mean')} ± {la.get('group_aware_cv_macro_f1_std')}**."
-        )
-        st.success(la.get("conclusion", ""))
-
-    fi = sm.get("feature_importance", {})
-    if fi:
-        st.subheader("Importanța features (model structurat)")
-        fi_df = pd.DataFrame({"feature": list(fi.keys()), "importance": list(fi.values())})
-        st.bar_chart(fi_df.set_index("feature"))
 
 
